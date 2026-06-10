@@ -100,7 +100,7 @@ function App() {
           {user.role === 'fisherman' ? <NavLink to="/catches">Мой улов</NavLink> : null}
           <NavLink to="/market">Рынок</NavLink>
           <NavLink to="/requests">Заявки</NavLink>
-          <NavLink to="/analytics">Аналитика</NavLink>
+          <NavLink to="/analytics">Панель управления</NavLink>
         </nav>
 
         <button className="button ghost logout-button" type="button" onClick={logout}>
@@ -595,33 +595,107 @@ function InspectorRequestsPage() {
 
 function AnalyticsPage() {
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const [selectedYear, setSelectedYear] = useState<'current' | 'previous'>('current');
   useEffect(() => {
     getAnalytics().then(setAnalytics);
   }, []);
 
   if (!analytics) return <div className="loading page-loading">Загрузка аналитики...</div>;
 
+  const showingCurrent = selectedYear === 'current';
+  const activeYear = showingCurrent ? analytics.currentYear : analytics.previousYear;
+  const selectedOverview = showingCurrent
+    ? analytics.overview
+    : {
+        ...analytics.overview,
+        totalCatches: analytics.yearSummary.catches.previous,
+        totalApprovedWeight: analytics.yearSummary.weight.previous,
+        ecoComplaints: analytics.yearSummary.complaints.previous,
+      };
+
   return (
-    <section className="page-stack">
-      <div className="section-heading">
-        <span className="eyebrow"><BarChart3 size={16} /> Аналитика Каспия</span>
-        <h1>Нагрузка: {analytics.caspianLoad}</h1>
+    <section className="dashboard-shell">
+      <div className="dashboard-hero">
+        <div className="section-heading">
+          <span className="eyebrow"><BarChart3 size={16} /> Панель управления</span>
+          <h1>Состояние рыбной отрасли Каспия</h1>
+          <p>Ключевые показатели уловов, рынка и экологических жалоб за {activeYear} год.</p>
+        </div>
+        <div className="year-toggle" aria-label="Переключатель года">
+          <button className={showingCurrent ? 'active' : ''} type="button" onClick={() => setSelectedYear('current')}>
+            Текущий год
+          </button>
+          <button className={!showingCurrent ? 'active' : ''} type="button" onClick={() => setSelectedYear('previous')}>
+            Прошлый год
+          </button>
+        </div>
       </div>
-      <div className="metric-row">
-        <MetricCard label="Подтверждённый улов, кг" value={analytics.totalApprovedWeight} icon={<Fish />} />
-        <MetricCard label="Подтверждённых уловов" value={analytics.approvedCount} icon={<Check />} />
-        <MetricCard label="Pending уловов" value={analytics.pendingCount} icon={<ShieldCheck />} />
-        <MetricCard label="Эко-заявок" value={analytics.ecoReportsCount} icon={<AlertTriangle />} />
-        <MetricCard label="Подтверждённых проблем" value={analytics.approvedEcoReportsCount} icon={<ClipboardList />} />
+
+      <div className="year-comparison">
+        <YearMetricCard
+          icon={<Fish />}
+          label="Уловов"
+          currentYear={analytics.currentYear}
+          previousYear={analytics.previousYear}
+          metric={analytics.yearSummary.catches}
+        />
+        <YearMetricCard
+          icon={<Waves />}
+          label="Общий вес"
+          suffix=" кг"
+          currentYear={analytics.currentYear}
+          previousYear={analytics.previousYear}
+          metric={analytics.yearSummary.weight}
+        />
+        <YearMetricCard
+          icon={<AlertTriangle />}
+          label="Жалобы"
+          currentYear={analytics.currentYear}
+          previousYear={analytics.previousYear}
+          metric={analytics.yearSummary.complaints}
+        />
       </div>
-      <div className="dashboard-grid">
-        <AnalyticsBars title="Топ видов рыбы" items={analytics.topFishTypes} />
-        <AnalyticsBars title="Районы с большим уловом" items={analytics.topLocations} />
-        <AnalyticsBars title="Районы с жалобами" items={analytics.topComplaintLocations} />
-        <div className="card">
-          <h2>Примерная аналитика по районам</h2>
-          <div className="bars">
-            {analytics.areaInsights.map((item) => <p key={item.name}><b>{item.name}:</b> {item.text}</p>)}
+
+      <div className="metric-row dashboard-metrics">
+        <MetricCard label="Всего уловов" value={selectedOverview.totalCatches} icon={<Fish />} />
+        <MetricCard label="Общий вес улова, кг" value={Math.round(selectedOverview.totalApprovedWeight)} icon={<Waves />} />
+        <MetricCard label="Активных объявлений" value={selectedOverview.activeListings} icon={<ShoppingBag />} />
+        <MetricCard label="Активных заявок" value={selectedOverview.activeRequests} icon={<ClipboardList />} />
+        <MetricCard label="Экологических жалоб" value={selectedOverview.ecoComplaints} icon={<AlertTriangle />} />
+        <MetricCard label="Районов мониторинга" value={selectedOverview.monitoringAreas} icon={<MapPinned />} />
+      </div>
+
+      <div className="dashboard-grid wide-dashboard-grid">
+        <MonthlyCatchChart items={analytics.monthlyCatch} selectedYear={selectedYear} />
+        <FishBreakdown items={analytics.fishBreakdown} />
+        <LocationBreakdown items={analytics.locationBreakdown} />
+        <div className={`ecosystem-card card ${analytics.ecosystem.tone}`}>
+          <div>
+            <span className="eyebrow"><Waves size={16} /> Состояние экосистемы</span>
+            <h2>{analytics.ecosystem.label}</h2>
+            <p>{analytics.ecosystem.description}</p>
+          </div>
+          <div className="eco-status-scale">
+            <span className={analytics.ecosystem.tone === 'good' ? 'active good' : 'good'}>Хорошее</span>
+            <span className={analytics.ecosystem.tone === 'warning' ? 'active warning' : 'warning'}>Внимание</span>
+            <span className={analytics.ecosystem.tone === 'danger' ? 'active danger' : 'danger'}>Нагрузка</span>
+          </div>
+          <div className="eco-breakdown">
+            {analytics.ecoBreakdown.map((item) => (
+              <div key={item.type}>
+                <strong>{item.count}</strong>
+                <span>{item.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="recommendations-card card">
+          <span className="eyebrow"><ShieldCheck size={16} /> Рекомендации</span>
+          <h2>Что важно проверить</h2>
+          <div className="recommendations-list">
+            {analytics.recommendations.map((item) => (
+              <p key={item}>{item}</p>
+            ))}
           </div>
         </div>
       </div>
@@ -690,17 +764,100 @@ function MetricCard({ label, value, icon }: { label: string; value: number; icon
   );
 }
 
-function AnalyticsBars({ title, items }: { title: string; items: Array<{ name: string; value: number }> }) {
-  const max = Math.max(...items.map((item) => item.value), 1);
+function YearMetricCard({
+  label,
+  metric,
+  icon,
+  currentYear,
+  previousYear,
+  suffix = '',
+}: {
+  label: string;
+  metric: { current: number; previous: number; change: number };
+  icon: ReactElement;
+  currentYear: number;
+  previousYear: number;
+  suffix?: string;
+}) {
+  const positive = metric.change >= 0;
   return (
-    <div className="card">
-      <h2>{title}</h2>
+    <article className="year-card">
+      <span className="year-card-icon">{icon}</span>
+      <div>
+        <small>{label}</small>
+        <strong>{Math.round(metric.current).toLocaleString('ru-RU')}{suffix}</strong>
+        <p>{currentYear}: {Math.round(metric.current).toLocaleString('ru-RU')}{suffix}</p>
+        <p>{previousYear}: {Math.round(metric.previous).toLocaleString('ru-RU')}{suffix}</p>
+      </div>
+      <b className={positive ? 'trend up' : 'trend down'}>
+        {positive ? '↑' : '↓'} {positive ? '+' : ''}{metric.change}%
+      </b>
+    </article>
+  );
+}
+
+function MonthlyCatchChart({ items, selectedYear }: { items: Array<{ month: string; current: number; previous: number }>; selectedYear: 'current' | 'previous' }) {
+  const max = Math.max(...items.flatMap((item) => [item.current, item.previous]), 1);
+  return (
+    <div className="card chart-card monthly-chart-card">
+      <div className="card-heading-row">
+        <div>
+          <h2>Улов по месяцам</h2>
+          <p>Сравнение текущего и прошлого года</p>
+        </div>
+        <span>{selectedYear === 'current' ? 'Текущий год' : 'Прошлый год'}</span>
+      </div>
+      <div className="month-chart">
+        {items.map((item) => (
+          <div className="month-column" key={item.month}>
+            <div className="month-bars">
+              <span className="month-bar previous" style={{ height: `${Math.max((item.previous / max) * 100, 6)}%` }} />
+              <span className="month-bar current" style={{ height: `${Math.max((item.current / max) * 100, 6)}%` }} />
+            </div>
+            <small>{item.month}</small>
+          </div>
+        ))}
+      </div>
+      <div className="chart-legend">
+        <span><i className="legend-dot current" />Текущий год</span>
+        <span><i className="legend-dot previous" />Прошлый год</span>
+      </div>
+    </div>
+  );
+}
+
+function FishBreakdown({ items }: { items: Array<{ name: string; value: number; percent: number }> }) {
+  return (
+    <div className="card chart-card">
+      <h2>Топ видов рыб</h2>
       <div className="bars">
         {items.map((item) => (
-          <div className="bar-row" key={item.name}>
-            <span>{item.name}</span>
-            <div className="bar-track"><div className="bar-fill" style={{ width: `${(item.value / max) * 100}%` }} /></div>
-            <strong>{item.value}</strong>
+          <div className="dashboard-bar-row" key={item.name}>
+            <div>
+              <strong>{item.name}</strong>
+              <span>{Math.round(item.value)} кг · {item.percent}%</span>
+            </div>
+            <div className="bar-track"><div className="bar-fill" style={{ width: `${item.percent}%` }} /></div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LocationBreakdown({ items }: { items: Array<{ name: string; count: number; weight: number }> }) {
+  const max = Math.max(...items.map((item) => item.weight), 1);
+  return (
+    <div className="card chart-card">
+      <h2>Топ районов</h2>
+      <div className="location-list">
+        {items.map((item) => (
+          <div className="location-row" key={item.name}>
+            <div>
+              <strong>{item.name}</strong>
+              <span>{item.count} уловов · {Math.round(item.weight)} кг</span>
+            </div>
+            <div className="bar-track"><div className="bar-fill alt" style={{ width: `${(item.weight / max) * 100}%` }} /></div>
           </div>
         ))}
       </div>

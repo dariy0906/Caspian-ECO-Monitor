@@ -105,6 +105,32 @@ export type Analytics = {
   topComplaintLocations: Array<{ name: string; value: number }>;
   caspianLoad: 'низкая' | 'средняя' | 'высокая';
   areaInsights: Array<{ name: string; text: string }>;
+  currentYear: number;
+  previousYear: number;
+  yearSummary: {
+    catches: { current: number; previous: number; change: number };
+    weight: { current: number; previous: number; change: number };
+    complaints: { current: number; previous: number; change: number };
+  };
+  overview: {
+    totalCatches: number;
+    totalApprovedWeight: number;
+    activeListings: number;
+    activeRequests: number;
+    ecoComplaints: number;
+    monitoringAreas: number;
+  };
+  monthlyCatch: Array<{ month: string; current: number; previous: number }>;
+  fishBreakdown: Array<{ name: string; value: number; percent: number }>;
+  locationBreakdown: Array<{ name: string; count: number; weight: number }>;
+  ecoBreakdown: Array<{ type: EcoReportType; label: string; count: number }>;
+  ecosystem: {
+    status: 'хорошее' | 'attention' | 'high';
+    label: string;
+    tone: 'good' | 'warning' | 'danger';
+    description: string;
+  };
+  recommendations: string[];
 };
 
 export type CreateCatchPayload = {
