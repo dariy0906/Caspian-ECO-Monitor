@@ -32,12 +32,14 @@ import {
   login,
   register,
   rejectEcoReport,
+  removeListing,
+  removeMarketRequest,
+  updateMapMarkerNote,
 } from './api';
 import { CaspianMap } from './components/CaspianMap';
 import {
   ecoStatusLabels,
   ecoTypeLabels,
-  fishIcons,
   fishTypes,
   formatKg,
   formatPrice,
@@ -45,7 +47,6 @@ import {
   marketLabels,
   marketRequestLabels,
   toNumber,
-  verificationLabels,
 } from './reportMeta';
 import type {
   Analytics,
@@ -100,7 +101,7 @@ function App() {
           {user.role === 'fisherman' ? <NavLink to="/catches">Мой улов</NavLink> : null}
           <NavLink to="/market">Рынок</NavLink>
           <NavLink to="/requests">Заявки</NavLink>
-          <NavLink to="/analytics">Панель управления</NavLink>
+          <NavLink to="/analytics">Аналитика</NavLink>
         </nav>
 
         <button className="button ghost logout-button" type="button" onClick={logout}>
@@ -110,7 +111,7 @@ function App() {
 
       <main>
         <Routes>
-          <Route path="/" element={<MapPage />} />
+          <Route path="/" element={<MapPage user={user} />} />
           <Route path="/catches" element={<MyCatchesPage user={user} />} />
           <Route path="/market" element={<MarketPage user={user} />} />
           <Route path="/requests" element={<RequestsPage user={user} />} />
@@ -234,13 +235,23 @@ function LoginPage({ onLogin }: { onLogin: (user: User) => void }) {
   );
 }
 
-function MapPage() {
+function MapPage({ user }: { user: User }) {
   const [markers, setMarkers] = useState<MapMarker[]>([]);
   const [kind, setKind] = useState('all');
+  const refresh = async () => {
+    setMarkers(await getMapMarkers());
+  };
 
   useEffect(() => {
-    getMapMarkers().then(setMarkers);
+    refresh();
+    const timer = window.setInterval(refresh, 5000);
+    return () => window.clearInterval(timer);
   }, []);
+
+  async function handleMarkerNote(markerId: string, action: 'add_plus' | 'add_minus' | 'remove_plus' | 'remove_minus', text: string) {
+    await updateMapMarkerNote(markerId, action, text);
+    await refresh();
+  }
 
   const visibleMarkers = kind === 'all' ? markers : markers.filter((marker) => marker.kind === kind);
 
@@ -258,9 +269,17 @@ function MapPage() {
           <option value="risk">Зоны риска</option>
         </select>
       </div>
-      <div className="map-panel caspian-map-panel"><CaspianMap markers={visibleMarkers} /></div>
+      <div className="map-panel caspian-map-panel">
+        <CaspianMap
+          markers={visibleMarkers}
+          canEditNotes={user.role === 'inspector'}
+          onMarkerNote={handleMarkerNote}
+        />
+      </div>
       <div className="legend">
-        <span><i className="dot approved" /> Подтверждённый улов</span>
+        <span><i className="dot approved" /> Рыбная точка до 100 кг</span>
+        <span><i className="dot medium" /> 100-300 кг</span>
+        <span><i className="dot high" /> Более 300 кг</span>
         <span><i className="dot eco" /> Эко-проблема</span>
         <span><i className="dot warning" /> Зона риска</span>
       </div>
@@ -317,22 +336,17 @@ function MyCatchesPage({ user }: { user: User }) {
           <label>Район / местность
             <input value={form.locationName} onChange={(event) => setForm({ ...form, locationName: event.target.value })} />
           </label>
-          <label>Иконка рыбы
-            <select value={form.fishImage} onChange={(event) => setForm({ ...form, fishImage: event.target.value })}>
-              {fishIcons.map((icon) => <option key={icon}>{icon}</option>)}
-            </select>
-          </label>
-          <label>Latitude
+          <label>Широта
             <input type="number" step="0.000001" value={form.latitude} onChange={(event) => setForm({ ...form, latitude: Number(event.target.value) })} />
           </label>
-          <label>Longitude
+          <label>Долгота
             <input type="number" step="0.000001" value={form.longitude} onChange={(event) => setForm({ ...form, longitude: Number(event.target.value) })} />
           </label>
         </div>
         <label>Описание
           <textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} required />
         </label>
-        <button className="button primary" type="submit"><Plus size={18} /> Отправить инспектору</button>
+        <button className="button primary" type="submit"><Plus size={18} /> Добавить</button>
       </form>
 
       <div className="cards-grid">
@@ -398,6 +412,16 @@ function MarketPage({ user }: { user: User }) {
     await refresh();
   }
 
+  async function deleteListing(id: number) {
+    await removeListing(id);
+    await refresh();
+  }
+
+  async function deleteRequest(id: number) {
+    await removeMarketRequest(id);
+    await refresh();
+  }
+
   return (
     <section className="page-stack">
       <div className="section-heading">
@@ -409,7 +433,7 @@ function MarketPage({ user }: { user: User }) {
         <form className="form-card" onSubmit={submitListing}>
           <h2>Создать слот продажи</h2>
           <div className="form-grid">
-            <label>Подтверждённый улов
+            <label>Улов для продажи
               <select value={listingForm.catchId} onChange={(event) => setListingForm({ ...listingForm, catchId: event.target.value })} required>
                 <option value="">Выберите улов</option>
                 {eligibleCatches.map((item) => <option key={item.id} value={item.id}>{item.fishType} · {formatKg(item.weight)} · {item.locationName}</option>)}
@@ -423,30 +447,32 @@ function MarketPage({ user }: { user: User }) {
         </form>
       ) : null}
 
-      <form className="form-card" onSubmit={submitRequest}>
-        <h2>Создать запрос на рынке</h2>
-        <div className="form-grid">
-          <label>Какая рыба нужна
-            <select value={requestForm.fishType} onChange={(event) => setRequestForm({ ...requestForm, fishType: event.target.value })}>{fishTypes.map((item) => <option key={item}>{item}</option>)}</select>
+      {user.role === 'fisherman' ? (
+        <form className="form-card" onSubmit={submitRequest}>
+          <h2>Создать запрос на рынке</h2>
+          <div className="form-grid">
+            <label>Какая рыба нужна
+              <select value={requestForm.fishType} onChange={(event) => setRequestForm({ ...requestForm, fishType: event.target.value })}>{fishTypes.map((item) => <option key={item}>{item}</option>)}</select>
+            </label>
+            <label>Сколько кг
+              <input type="number" value={requestForm.weight} onChange={(event) => setRequestForm({ ...requestForm, weight: Number(event.target.value) })} />
+            </label>
+            <label>Срок
+              <input type="date" value={requestForm.deadline} onChange={(event) => setRequestForm({ ...requestForm, deadline: event.target.value })} />
+            </label>
+            <label>Цена, ₸
+              <input type="number" value={requestForm.offeredPrice} onChange={(event) => setRequestForm({ ...requestForm, offeredPrice: Number(event.target.value) })} />
+            </label>
+            <label>Район
+              <input value={requestForm.locationName} onChange={(event) => setRequestForm({ ...requestForm, locationName: event.target.value })} />
+            </label>
+          </div>
+          <label>Описание
+            <textarea value={requestForm.description} onChange={(event) => setRequestForm({ ...requestForm, description: event.target.value })} required />
           </label>
-          <label>Сколько кг
-            <input type="number" value={requestForm.weight} onChange={(event) => setRequestForm({ ...requestForm, weight: Number(event.target.value) })} />
-          </label>
-          <label>Срок
-            <input type="date" value={requestForm.deadline} onChange={(event) => setRequestForm({ ...requestForm, deadline: event.target.value })} />
-          </label>
-          <label>Цена, ₸
-            <input type="number" value={requestForm.offeredPrice} onChange={(event) => setRequestForm({ ...requestForm, offeredPrice: Number(event.target.value) })} />
-          </label>
-          <label>Район
-            <input value={requestForm.locationName} onChange={(event) => setRequestForm({ ...requestForm, locationName: event.target.value })} />
-          </label>
-        </div>
-        <label>Описание
-          <textarea value={requestForm.description} onChange={(event) => setRequestForm({ ...requestForm, description: event.target.value })} required />
-        </label>
-        <button className="button ghost" type="submit"><Plus size={18} /> Создать запрос</button>
-      </form>
+          <button className="button ghost" type="submit"><Plus size={18} /> Создать запрос</button>
+        </form>
+      ) : null}
 
       <div className="cards-grid">
         {listings.map((listing) => (
@@ -462,11 +488,17 @@ function MarketPage({ user }: { user: User }) {
               <strong><Star size={15} /> {toNumber(listing.sellerRating).toFixed(1)}</strong>
             </div>
             <div className="review-box">
-              <select value={review[listing.id]?.rating || '5'} onChange={(event) => setReview({ ...review, [listing.id]: { rating: event.target.value, comment: review[listing.id]?.comment || '' } })}>
-                {[5, 4, 3, 2, 1].map((rating) => <option key={rating}>{rating}</option>)}
-              </select>
-              <input placeholder="Короткий отзыв" value={review[listing.id]?.comment || ''} onChange={(event) => setReview({ ...review, [listing.id]: { rating: review[listing.id]?.rating || '5', comment: event.target.value } })} />
-              <button className="button ghost" type="button" onClick={() => submitReview(listing)}>Оценить</button>
+              {user.role === 'inspector' ? (
+                <button className="button danger" type="button" onClick={() => deleteListing(listing.id)}>Убрать товар</button>
+              ) : (
+                <>
+                  <select value={review[listing.id]?.rating || '5'} onChange={(event) => setReview({ ...review, [listing.id]: { rating: event.target.value, comment: review[listing.id]?.comment || '' } })}>
+                    {[5, 4, 3, 2, 1].map((rating) => <option key={rating}>{rating}</option>)}
+                  </select>
+                  <input placeholder="Короткий отзыв" value={review[listing.id]?.comment || ''} onChange={(event) => setReview({ ...review, [listing.id]: { rating: review[listing.id]?.rating || '5', comment: event.target.value } })} />
+                  <button className="button ghost" type="button" onClick={() => submitReview(listing)}>Оценить</button>
+                </>
+              )}
             </div>
           </article>
         ))}
@@ -479,6 +511,9 @@ function MarketPage({ user }: { user: User }) {
             <h2>{item.fishType} · {formatKg(item.weight)}</h2>
             <p>{item.description}</p>
             <div className="report-meta"><span>{formatPrice(item.offeredPrice)}</span><span>{item.locationName}</span><span>до {item.deadline}</span></div>
+            {user.role === 'inspector' ? (
+              <button className="button danger" type="button" onClick={() => deleteRequest(item.id)}>Убрать запрос</button>
+            ) : null}
           </article>
         ))}
       </div>
@@ -534,17 +569,17 @@ function FishermanRequestsPage({ user }: { user: User }) {
           <label>Место
             <input value={form.locationName} onChange={(event) => setForm({ ...form, locationName: event.target.value })} />
           </label>
-          <label>Latitude
+          <label>Широта
             <input type="number" step="0.000001" value={form.latitude} onChange={(event) => setForm({ ...form, latitude: Number(event.target.value) })} />
           </label>
-          <label>Longitude
+          <label>Долгота
             <input type="number" step="0.000001" value={form.longitude} onChange={(event) => setForm({ ...form, longitude: Number(event.target.value) })} />
           </label>
         </div>
         <label>Описание
           <textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} required />
         </label>
-        <button className="button primary" type="submit"><Plus size={18} /> Отправить инспектору</button>
+        <button className="button primary" type="submit"><Plus size={18} /> Добавить заявку</button>
       </form>
       <div className="cards-grid">
         {reports.map((item) => <EcoReportCard key={item.id} item={item} />)}
@@ -597,7 +632,10 @@ function AnalyticsPage() {
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [selectedYear, setSelectedYear] = useState<'current' | 'previous'>('current');
   useEffect(() => {
-    getAnalytics().then(setAnalytics);
+    const refresh = () => getAnalytics().then(setAnalytics);
+    refresh();
+    const timer = window.setInterval(refresh, 5000);
+    return () => window.clearInterval(timer);
   }, []);
 
   if (!analytics) return <div className="loading page-loading">Загрузка аналитики...</div>;
@@ -614,11 +652,12 @@ function AnalyticsPage() {
       };
 
   return (
-    <section className="dashboard-shell">
+    <section className="analytics-page">
+      <div className="analytics-container">
       <div className="dashboard-hero">
         <div className="section-heading">
-          <span className="eyebrow"><BarChart3 size={16} /> Панель управления</span>
-          <h1>Состояние рыбной отрасли Каспия</h1>
+          <span className="eyebrow"><BarChart3 size={16} /> Аналитика</span>
+          <h1>Аналитика рыбной отрасли Каспия</h1>
           <p>Ключевые показатели уловов, рынка и экологических жалоб за {activeYear} год.</p>
         </div>
         <div className="year-toggle" aria-label="Переключатель года">
@@ -656,7 +695,7 @@ function AnalyticsPage() {
         />
       </div>
 
-      <div className="metric-row dashboard-metrics">
+      <div className="stats-grid">
         <MetricCard label="Всего уловов" value={selectedOverview.totalCatches} icon={<Fish />} />
         <MetricCard label="Общий вес улова, кг" value={Math.round(selectedOverview.totalApprovedWeight)} icon={<Waves />} />
         <MetricCard label="Активных объявлений" value={selectedOverview.activeListings} icon={<ShoppingBag />} />
@@ -668,7 +707,6 @@ function AnalyticsPage() {
       <div className="dashboard-grid wide-dashboard-grid">
         <MonthlyCatchChart items={analytics.monthlyCatch} selectedYear={selectedYear} />
         <FishBreakdown items={analytics.fishBreakdown} />
-        <LocationBreakdown items={analytics.locationBreakdown} />
         <div className={`ecosystem-card card ${analytics.ecosystem.tone}`}>
           <div>
             <span className="eyebrow"><Waves size={16} /> Состояние экосистемы</span>
@@ -689,15 +727,8 @@ function AnalyticsPage() {
             ))}
           </div>
         </div>
-        <div className="recommendations-card card">
-          <span className="eyebrow"><ShieldCheck size={16} /> Рекомендации</span>
-          <h2>Что важно проверить</h2>
-          <div className="recommendations-list">
-            {analytics.recommendations.map((item) => (
-              <p key={item}>{item}</p>
-            ))}
-          </div>
-        </div>
+        <LocationBreakdown items={analytics.locationBreakdown} currentYear={analytics.currentYear} previousYear={analytics.previousYear} />
+      </div>
       </div>
     </section>
   );
@@ -709,7 +740,6 @@ function CatchCard({ item, children }: { item: CatchItem; children?: ReactElemen
       <div className="fish-icon">{item.fishImage || '🐟'}</div>
       <div className="report-card-header">
         <span className="type-pill">{item.fishType}</span>
-        <span className={`status-pill ${item.verificationStatus}`}>{verificationLabels[item.verificationStatus]}</span>
       </div>
       <h2>{formatKg(item.weight)}</h2>
       <p>{item.description}</p>
@@ -828,7 +858,7 @@ function MonthlyCatchChart({ items, selectedYear }: { items: Array<{ month: stri
 
 function FishBreakdown({ items }: { items: Array<{ name: string; value: number; percent: number }> }) {
   return (
-    <div className="card chart-card">
+    <div className="card chart-card top-fish-card">
       <h2>Топ видов рыб</h2>
       <div className="bars">
         {items.map((item) => (
@@ -845,17 +875,32 @@ function FishBreakdown({ items }: { items: Array<{ name: string; value: number; 
   );
 }
 
-function LocationBreakdown({ items }: { items: Array<{ name: string; count: number; weight: number }> }) {
+function LocationBreakdown({
+  items,
+  currentYear,
+  previousYear,
+}: {
+  items: Array<{ name: string; count: number; weight: number; previousWeight: number; change: number; topFish: string }>;
+  currentYear: number;
+  previousYear: number;
+}) {
   const max = Math.max(...items.map((item) => item.weight), 1);
   return (
-    <div className="card chart-card">
-      <h2>Топ районов</h2>
+    <div className="card chart-card districts-card">
+      <h2>Рыбная активность по районам</h2>
       <div className="location-list">
         {items.map((item) => (
           <div className="location-row" key={item.name}>
             <div>
               <strong>{item.name}</strong>
-              <span>{item.count} уловов · {Math.round(item.weight)} кг</span>
+              <span>{item.count} уловов · топ рыба: {item.topFish}</span>
+            </div>
+            <div className="district-year-row">
+              <span>{currentYear}: {Math.round(item.weight)} кг</span>
+              <span>{previousYear}: {Math.round(item.previousWeight)} кг</span>
+              <b className={item.change >= 0 ? 'trend up' : 'trend down'}>
+                {item.change >= 0 ? '↑ +' : '↓ '}{item.change}%
+              </b>
             </div>
             <div className="bar-track"><div className="bar-fill alt" style={{ width: `${(item.weight / max) * 100}%` }} /></div>
           </div>

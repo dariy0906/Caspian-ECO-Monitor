@@ -48,18 +48,12 @@ export class AnalyticsService {
       (sum, item) => sum + Number(item.weight),
       0,
     );
-    const currentApproved = this.byYear(approved, currentYear);
-    const previousApproved =
-      this.byYear(approved, previousYear).length > 0
-        ? this.byYear(approved, previousYear)
-        : this.makePreviousYearBaseline(currentApproved);
+    const currentCatches = this.byYear(catches, currentYear);
+    const previousCatches = this.byYear(catches, previousYear);
     const currentEco = this.byYear(ecoReports, currentYear);
-    const previousEco =
-      this.byYear(ecoReports, previousYear).length > 0
-        ? this.byYear(ecoReports, previousYear)
-        : this.makePreviousEcoBaseline(currentEco);
-    const currentWeight = this.sumWeight(currentApproved);
-    const previousWeight = this.sumWeight(previousApproved);
+    const previousEco = this.byYear(ecoReports, previousYear);
+    const currentWeight = this.sumWeight(currentCatches);
+    const previousWeight = this.sumWeight(previousCatches);
     const activeListings = listings.filter((item) => item.status === 'active');
     const activeRequests = requests.filter((item) => item.status === 'open');
     const monitoringAreas = new Set([
@@ -86,7 +80,7 @@ export class AnalyticsService {
       currentYear,
       previousYear,
       yearSummary: {
-        catches: this.yearMetric(currentApproved.length, previousApproved.length),
+        catches: this.yearMetric(currentCatches.length, previousCatches.length),
         weight: this.yearMetric(currentWeight, previousWeight),
         complaints: this.yearMetric(currentEco.length, previousEco.length),
       },
@@ -100,14 +94,14 @@ export class AnalyticsService {
       },
       monthlyCatch: months.map((month, index) => ({
         month,
-        current: this.sumWeight(currentApproved.filter((item) => new Date(item.createdAt).getMonth() === index)),
-        previous: this.sumWeight(previousApproved.filter((item) => new Date(item.createdAt).getMonth() === index)),
+        current: this.sumWeight(currentCatches.filter((item) => new Date(item.createdAt).getMonth() === index)),
+        previous: this.sumWeight(previousCatches.filter((item) => new Date(item.createdAt).getMonth() === index)),
       })),
-      fishBreakdown: this.catchBreakdown(currentApproved, 'fishType'),
-      locationBreakdown: this.locationBreakdown(currentApproved),
+      fishBreakdown: this.catchBreakdown(currentCatches, 'fishType'),
+      locationBreakdown: this.locationActivity(currentCatches, previousCatches),
       ecoBreakdown: this.ecoBreakdown(currentEco),
       ecosystem,
-      recommendations: this.getRecommendations(currentApproved, previousApproved, currentEco),
+      recommendations: this.getRecommendations(currentCatches, previousCatches, currentEco),
     };
   }
 
@@ -117,18 +111,6 @@ export class AnalyticsService {
 
   private sumWeight(catches: Catch[]) {
     return catches.reduce((sum, item) => sum + Number(item.weight), 0);
-  }
-
-  private makePreviousYearBaseline(catches: Catch[]) {
-    return catches.map((item, index) => ({
-      ...item,
-      weight: Math.max(8, Number(item.weight) * (index % 2 === 0 ? 0.82 : 0.94)),
-      createdAt: new Date(new Date(item.createdAt).setFullYear(new Date().getFullYear() - 1)),
-    }));
-  }
-
-  private makePreviousEcoBaseline(reports: EcoReport[]) {
-    return reports.slice(0, Math.max(1, Math.round(reports.length * 0.68)));
   }
 
   private yearMetric(current: number, previous: number) {
@@ -165,6 +147,33 @@ export class AnalyticsService {
       .map(([name, value]) => ({ name, ...value }))
       .sort((a, b) => b.weight - a.weight)
       .slice(0, 5);
+  }
+
+  private locationActivity(current: Catch[], previous: Catch[]) {
+    const previousByLocation = this.locationBreakdown(previous).reduce<Record<string, number>>((acc, item) => {
+      acc[item.name] = item.weight;
+      return acc;
+    }, {});
+    const fishByLocation = current.reduce<Record<string, Record<string, number>>>((acc, item) => {
+      acc[item.locationName] = acc[item.locationName] || {};
+      acc[item.locationName][item.fishType] =
+        (acc[item.locationName][item.fishType] || 0) + Number(item.weight);
+      return acc;
+    }, {});
+
+    return this.locationBreakdown(current).map((item) => {
+      const previousWeight = previousByLocation[item.name] || 0;
+      const change = previousWeight === 0 ? (item.weight > 0 ? 100 : 0) : Math.round(((item.weight - previousWeight) / previousWeight) * 100);
+      const topFish = Object.entries(fishByLocation[item.name] || {})
+        .sort((a, b) => b[1] - a[1])[0]?.[0] || 'Нет данных';
+
+      return {
+        ...item,
+        previousWeight,
+        change,
+        topFish,
+      };
+    });
   }
 
   private ecoBreakdown(reports: EcoReport[]) {

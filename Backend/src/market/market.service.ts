@@ -126,6 +126,24 @@ export class MarketService implements OnModuleInit {
     );
   }
 
+  async removeListing(id: number) {
+    const listing = await this.listingsRepository.findOne({
+      where: { id },
+      relations: { catch: true },
+    });
+    if (!listing) {
+      throw new NotFoundException('Товар не найден');
+    }
+
+    if (listing.catch && listing.catch.marketStatus === 'listed') {
+      listing.catch.marketStatus = 'not_listed';
+      await this.catchesRepository.save(listing.catch);
+    }
+
+    await this.listingsRepository.remove(listing);
+    return { id, removed: true };
+  }
+
   getRequests() {
     return this.requestsRepository.find({ order: { createdAt: 'DESC' } });
   }
@@ -137,5 +155,15 @@ export class MarketService implements OnModuleInit {
         status: 'open',
       }),
     );
+  }
+
+  async removeRequest(id: number) {
+    const request = await this.requestsRepository.findOneBy({ id });
+    if (!request) {
+      throw new NotFoundException('Запрос не найден');
+    }
+
+    await this.requestsRepository.remove(request);
+    return { id, removed: true };
   }
 }

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post } from '@nestjs/common';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { CreateMarketRequestDto } from './dto/create-market-request.dto';
 import { CreateReviewDto } from './dto/create-review.dto';
@@ -18,6 +18,11 @@ export class MarketController {
     return this.marketService.create(dto);
   }
 
+  @Delete('listing/:id')
+  removeListing(@Param('id') id: string) {
+    return this.marketService.removeListing(+id);
+  }
+
   @Post('requests')
   createRequest(@Body() dto: CreateMarketRequestDto) {
     return this.marketService.createRequest(dto);
@@ -26,6 +31,11 @@ export class MarketController {
   @Get('requests')
   getRequests() {
     return this.marketService.getRequests();
+  }
+
+  @Delete('requests/:id')
+  removeRequest(@Param('id') id: string) {
+    return this.marketService.removeRequest(+id);
   }
 
   @Post(':listingId/review')

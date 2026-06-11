@@ -92,6 +92,11 @@ export type MapMarker = {
   pluses: string[];
   minuses: string[];
   description: string;
+  totalWeight?: number;
+  catchCount?: number;
+  fishStats?: Record<string, number>;
+  loadLevel?: 'low' | 'medium' | 'high';
+  updatedAt?: string;
 };
 
 export type Analytics = {
@@ -122,7 +127,7 @@ export type Analytics = {
   };
   monthlyCatch: Array<{ month: string; current: number; previous: number }>;
   fishBreakdown: Array<{ name: string; value: number; percent: number }>;
-  locationBreakdown: Array<{ name: string; count: number; weight: number }>;
+  locationBreakdown: Array<{ name: string; count: number; weight: number; previousWeight: number; change: number; topFish: string }>;
   ecoBreakdown: Array<{ type: EcoReportType; label: string; count: number }>;
   ecosystem: {
     status: 'хорошее' | 'attention' | 'high';

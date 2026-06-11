@@ -72,6 +72,11 @@ export async function createListing(catchId: number, sellerId: number, price: nu
   return data;
 }
 
+export async function removeListing(id: number) {
+  const { data } = await api.delete(`/market/listing/${id}`);
+  return data;
+}
+
 export async function addReview(listingId: number, payload: Pick<SellerReview, 'sellerId' | 'reviewerEmail' | 'rating' | 'comment'>) {
   const { data } = await api.post<SellerReview>(`/market/${listingId}/review`, payload);
   return data;
@@ -84,6 +89,11 @@ export async function getMarketRequests() {
 
 export async function createMarketRequest(payload: CreateMarketRequestPayload) {
   const { data } = await api.post<MarketRequest>('/market/requests', payload);
+  return data;
+}
+
+export async function removeMarketRequest(id: number) {
+  const { data } = await api.delete(`/market/requests/${id}`);
   return data;
 }
 
@@ -114,6 +124,15 @@ export async function rejectEcoReport(id: number, inspectorComment: string) {
 
 export async function getMapMarkers() {
   const { data } = await api.get<MapMarker[]>('/map/markers');
+  return data;
+}
+
+export async function updateMapMarkerNote(
+  markerId: string,
+  action: 'add_plus' | 'add_minus' | 'remove_plus' | 'remove_minus',
+  text: string,
+) {
+  const { data } = await api.patch(`/map/markers/${encodeURIComponent(markerId)}/notes`, { action, text });
   return data;
 }
 
